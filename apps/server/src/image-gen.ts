@@ -54,7 +54,9 @@ export type GeneratedMedia = {
 
 /** Scenes of about 5 seconds each; a long video gets this much time per scene. */
 const SCENE_SECONDS = 5;
-const MINUTES_PER_SCENE = 15;
+const MINUTES_PER_SCENE = 90;
+/** Measured render time of one scene with the default model (RTX 5050 Laptop). */
+export const EXPECTED_MINUTES_PER_SCENE = 40;
 
 type ScriptResult = {
   prompt?: unknown;

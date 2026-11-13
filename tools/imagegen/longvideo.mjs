@@ -1,5 +1,5 @@
-// Long video: idea -> Qwen3 storyboard (one scene per ~5 s) -> Wan 2.1 T2V 1.3B clips with the
-// Self-Forcing DMD LoRA (4 steps) -> clips joined into one video.webm.
+// Long video: idea -> Qwen3 storyboard (one scene per ~5 s) -> Wan clips (Wan 2.2 TI2V 5B, or
+// Wan 2.1 1.3B with a 4-step LoRA) -> clips joined into one video.webm.
 // Usage: node D:/imagegen/longvideo.mjs "your idea" [seconds=30]
 // OpenMuse sets IMAGEGEN_OUT. Progress lines: `PROGRESS {"done":n,"total":m}`.
 // The last stdout line is `RESULT {json}`.
@@ -10,13 +10,48 @@ import { dirname, join } from "node:path";
 const OLLAMA = "http://localhost:11434";
 const TEXT_MODEL = "qwen3-uncensored";
 const SD_CLI = "D:\\sdcpp\\sd-cli.exe";
-const WAN = "D:\\models\\wan\\wan2.1_t2v_1.3B_fp16.safetensors";
-const WAN_VAE = "D:\\models\\wan\\wan_2.1_vae.safetensors";
-const T5 = "D:\\models\\wan\\umt5-xxl-encoder-Q6_K.gguf";
-const LORA_DIR = "D:\\models\\wan\\loras";
-const LORA = "Wan2_1_self_forcing_dmd_1_3B_lora_rank_32_fp16";
-const FPS = 16;
-const FRAMES = 81; // about 5 seconds per scene, the most Wan 2.1 makes in one pass
+const MODELS = "D:\\models\\wan";
+const T5 = join(MODELS, "umt5-xxl-encoder-Q6_K.gguf");
+const NEGATIVE =
+  "oversaturated, overexposed, static, blurry details, subtitles, text, watermark, low quality, " +
+  "jpeg artifacts, ugly, deformed, disfigured, extra limbs, morphing, flickering, plastic, cartoon";
+
+// VIDEO_MODEL picks the model. "wan22-5b" (default when its files exist) is Wan 2.2 TI2V 5B:
+// 1280x704 at 24 fps, slower but much better. "wan21-fast" is Wan 2.1 1.3B with a 4-step LoRA.
+const PROFILES = {
+  "wan22-5b": {
+    fps: 24,
+    frames: 121, // about 5 seconds, the model's native clip length
+    files: [join(MODELS, "Wan2.2-TI2V-5B-Q8_0.gguf"), join(MODELS, "wan2.2_vae.safetensors")],
+    args: () => [
+      "--diffusion-model", join(MODELS, "Wan2.2-TI2V-5B-Q8_0.gguf"),
+      "--vae", join(MODELS, "wan2.2_vae.safetensors"),
+      "--cfg-scale", "5.0", "--sampling-method", "euler", "--steps", process.env.VIDEO_STEPS || "30",
+      "--flow-shift", "5.0", "-W", "1280", "-H", "704", "-n", NEGATIVE, "--offload-to-cpu",
+    ],
+    prompt: (p) => p,
+  },
+  "wan21-fast": {
+    fps: 16,
+    frames: 81,
+    files: [join(MODELS, "wan2.1_t2v_1.3B_fp16.safetensors")],
+    args: () => [
+      "--diffusion-model", join(MODELS, "wan2.1_t2v_1.3B_fp16.safetensors"),
+      "--vae", join(MODELS, "wan_2.1_vae.safetensors"),
+      "--lora-model-dir", join(MODELS, "loras"),
+      "--cfg-scale", "1.0", "--sampling-method", "euler", "--steps", "4",
+      "--flow-shift", "5.0", "-W", "832", "-H", "480",
+    ],
+    prompt: (p) => `${p}<lora:Wan2_1_self_forcing_dmd_1_3B_lora_rank_32_fp16:1>`,
+  },
+};
+const modelName =
+  process.env.VIDEO_MODEL ||
+  (PROFILES["wan22-5b"].files.every((f) => existsSync(f)) ? "wan22-5b" : "wan21-fast");
+const MODEL = PROFILES[modelName];
+if (!MODEL) throw new Error(`unknown VIDEO_MODEL ${modelName}`);
+const FPS = MODEL.fps;
+const FRAMES = MODEL.frames;
 const SCENE_SECONDS = FRAMES / FPS;
 
 const idea = process.argv[2];
@@ -96,15 +131,18 @@ async function unloadOllama() {
   await new Promise((r) => setTimeout(r, 2000));
 }
 
-function renderScene(prompt, file, seed) {
+// The retry also decodes the video in time slices, which needs less GPU memory.
+function renderScene(prompt, file, seed, retry = false) {
   const args = [
     "-M", "vid_gen",
-    "--diffusion-model", WAN, "--vae", WAN_VAE, "--t5xxl", T5,
-    "--lora-model-dir", LORA_DIR,
-    "-p", `${prompt}<lora:${LORA}:1>`,
-    "--cfg-scale", "1.0", "--sampling-method", "euler", "--steps", "4",
-    "-W", "832", "-H", "480", "--video-frames", String(FRAMES), "--flow-shift", "5.0",
+    ...MODEL.args(), "--t5xxl", T5,
+    "-p", MODEL.prompt(prompt),
+    "--video-frames", String(FRAMES), "--fps", String(FPS),
     "--clip-on-cpu", "--vae-tiling", "--mmap",
+    ...(retry
+      ? ["--temporal-tiling", "--vae-tile-size", "256x256",
+         "--extra-tiling-args", "temporal_tile_frames=4,temporal_decode_frames=2"]
+      : []),
     "-s", String(seed), "-o", file,
   ];
   return new Promise((resolve, reject) => {
@@ -170,7 +208,7 @@ async function joinClips(clips, out) {
   return frames.length;
 }
 
-log(`Long video: ${seconds}s requested, ${scenes} scenes of ~${SCENE_SECONDS.toFixed(1)}s`);
+log(`Long video (${modelName}): ${seconds}s requested, ${scenes} scenes of ~${SCENE_SECONDS.toFixed(1)}s`);
 const plan = await storyboard();
 log(`Title: ${plan.title}`);
 log(`Style: ${plan.style}`);
@@ -188,7 +226,7 @@ for (const [index, scene] of plan.scenes.entries()) {
   let ok = false;
   for (let attempt = 0; attempt < 2 && !ok; attempt++) {
     try {
-      await renderScene(prompt, file, baseSeed + index * 7919 + attempt);
+      await renderScene(prompt, file, baseSeed + index * 7919 + attempt, attempt > 0);
       ok = true;
     } catch (error) {
       log(`  scene ${index + 1} attempt ${attempt + 1} failed: ${String(error.message).slice(0, 300)}`);

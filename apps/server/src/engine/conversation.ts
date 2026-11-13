@@ -14,6 +14,7 @@ import { calendarRangeSchema } from "../../../../packages/domain/src/index.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import type { Config } from "../config.ts";
+import { EXPECTED_MINUTES_PER_SCENE } from "../image-gen.ts";
 import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
@@ -374,7 +375,7 @@ export class ConversationAgent extends AbstractAgent {
             defineTool({
               name: "generate_video",
               description: images.longVideoEnabled
-                ? "Create a video (832x480) on this computer's GPU from the user's idea using a local text-to-video model. Without seconds (or up to 5) it makes one ~2 second clip and returns when done (several minutes). With seconds from 6 to 180 it plans scenes of ~5 seconds, renders and joins them in the background, and returns at once with status running; the chat card shows scene progress and plays the video when it is ready. Returns the video ID."
+                ? "Create a video on this computer's GPU from the user's idea using a local text-to-video model. It plans scenes of ~5 seconds (seconds 1-180, default 5), renders and joins them in the background, and returns at once with status running; the chat card shows scene progress and plays the video when it is ready. Returns the video ID."
                 : "Create a short (about 2 second, 832x480) video clip on this computer's GPU from the user's idea using a local text-to-video model. Takes several minutes. The chat shows the video automatically. Returns the video ID and the prompt used.",
               parameters: z.object({
                 idea: z.string().trim().min(1).max(1000),
@@ -384,20 +385,22 @@ export class ConversationAgent extends AbstractAgent {
                   .min(1)
                   .max(180)
                   .optional()
-                  .describe("Requested length in seconds; over 5 makes a long multi-scene video"),
+                  .describe(
+                    "Requested length in seconds (default 5); over 5 makes a multi-scene video",
+                  ),
               }),
               execute: async ({ idea, seconds }) => {
                 browserAbort.signal.throwIfAborted();
-                if (seconds && seconds > 5 && images.longVideoEnabled) {
+                if (images.longVideoEnabled) {
                   try {
-                    const video = await images.startLongVideo(this.owner, idea, seconds);
+                    const video = await images.startLongVideo(this.owner, idea, seconds ?? 5);
                     const scenes = video.progress?.total ?? 1;
                     return {
                       id: video.id,
                       status: "running",
-                      seconds,
+                      seconds: seconds ?? 5,
                       scenes,
-                      note: `Rendering ${scenes} scenes in the background; roughly ${scenes * 3}-${scenes * 5} minutes. The chat card shows progress and plays the video when ready.`,
+                      note: `Rendering ${scenes} scene${scenes === 1 ? "" : "s"} in the background; roughly ${scenes * EXPECTED_MINUTES_PER_SCENE} minutes. The chat card shows progress and plays the video when ready.`,
                     };
                   } catch (error) {
                     return {
@@ -493,7 +496,7 @@ export class ConversationAgent extends AbstractAgent {
         (images?.videoEnabled
           ? " When the user asks for a video, clip or animation, call generate_video once with their idea (translated to English, keeping every detail); do not delegate it. If they ask for a length (for example 30 seconds or 2 minutes), pass it as seconds." +
             (images.longVideoEnabled
-              ? " A video longer than 5 seconds runs in the background: tell the user how many scenes and roughly how long it will take, and that the card shows progress."
+              ? " Videos run in the background: tell the user how many scenes and roughly how long it will take (from the note), and that the card shows progress."
               : " Only ~2 second clips are possible; say so if they ask for longer.") +
             " The chat shows the video itself; reply briefly with the prompt. If it returns an error, report it."
           : "") +

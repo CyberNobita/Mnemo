@@ -87,8 +87,9 @@ All providers return the same bounded result shape (10 sources, 30,000 excerpt c
   through signed URLs: `GET /api/images/:id` and `GET /api/images/:id/content`.
 - `engine/conversation.ts`: chat tools `generate_image` (`idea`, `minScore`, `maxRounds`) and
   `generate_video` (`idea`, optional `seconds`).
-- Long videos (`LONGVIDEO_SCRIPT`, `seconds` 6-180): a storyboard of ~5-second scenes rendered
-  with a 4-step distilled LoRA and joined into one video. They run in the background, so the
+- Videos (`LONGVIDEO_SCRIPT`, `seconds` 1-180, default 5): a storyboard of ~5-second scenes
+  rendered with Wan 2.2 TI2V 5B (1280x704, 24 fps), or with Wan 2.1 1.3B and a 4-step LoRA
+  (`VIDEO_MODEL=wan21-fast`), and joined into one video. They run in the background, so the
   tool returns at once; the record stays `running` with scene progress, and a server restart
   marks an unfinished video as failed.
 - `apps/mobile/src/image-tool-card.tsx` (new), `chat.tsx`: inline image and video cards. An

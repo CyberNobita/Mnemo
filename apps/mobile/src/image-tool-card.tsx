@@ -158,7 +158,7 @@ export function ImageToolCard({
             playsInline: true,
             style: {
               width: "100%",
-              aspectRatio: "832 / 480",
+              aspectRatio: "16 / 9",
               borderRadius: 12,
               background: "#000",
             },
