@@ -7,13 +7,23 @@
     "orientation": "default",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "ios": { "supportsTablet": true, "bundleIdentifier": "app.openmuse.mobile" },
-    "android": { "package": "app.openmuse.mobile" },
-    "web": { "bundler": "metro", "name": "Mnemo — your private assistant" },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.openmuse.mobile"
+    },
+    "android": {
+      "package": "app.openmuse.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "name": "Mnemo — your private assistant",
+      "favicon": "./assets/favicon.png"
+    },
     "plugins": [
       "expo-document-picker",
       "@config-plugins/react-native-blob-util",
       "@config-plugins/react-native-pdf"
-    ]
+    ],
+    "icon": "./assets/icon.png"
   }
 }

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/mnemo-logo.png" width="112" alt="Mnemo logo"></p>
+
 > [!NOTE]
 > **Mnemo** is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) that runs
 > fully on your own computer: a local model through Ollama, chats saved in the local database,
@@ -7,7 +9,9 @@
 
   <div align="center">
 
-# OpenMuse
+# Mnemo
+
+<sub>a private fork of OpenMuse</sub>
 
 **A personal agent with a browser, terminal, files, and work that keeps going. Compatible with any agent harness.**
 

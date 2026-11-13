@@ -399,36 +399,22 @@ export function LinkRow({
     </Pressable>
   );
 }
-/** OpenMuse's original capybara, shared by every assistant surface. */
-export function Mascot({
-  size = 42,
-  variant = "sky",
-}: {
-  size?: number;
-  variant?: "sky" | "sand" | "lilac";
-}) {
-  const palette = {
-    sky: "#ECF5FA",
-    sand: "#FAF0DF",
-    lilac: "#F1ECF9",
-  }[variant];
+/**
+ * Mnemo's logo (Devanagari "म" on an indigo-violet tile), shared by every assistant surface.
+ * `variant` is kept for callers written for the original capybara; the logo has one look.
+ */
+export function Mascot({ size = 42 }: { size?: number; variant?: "sky" | "sand" | "lilac" }) {
+  // The tile fills less of the frame than the capybara did, so it is drawn slightly smaller.
+  const tile = Math.round(size * 0.86);
   return (
-    <View accessibilityLabel="Mnemo capybara" style={{ width: size, height: size }}>
-      <View
-        style={{
-          position: "absolute",
-          top: size * 0.15,
-          left: size * 0.12,
-          width: size * 0.76,
-          height: size * 0.76,
-          borderRadius: size,
-          backgroundColor: palette,
-        }}
-      />
+    <View
+      accessibilityLabel="Mnemo logo"
+      style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}
+    >
       <Image
-        source={require("../assets/capybara.png")}
+        source={require("../assets/mnemo-logo.png")}
         resizeMode="contain"
-        style={{ width: size, height: size }}
+        style={{ width: tile, height: tile }}
         accessible={false}
       />
     </View>
