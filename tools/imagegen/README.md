@@ -47,9 +47,10 @@ A video model makes about 5 seconds in one pass, so a video is a short film of 5
 | `wan22-5b` (default when its files exist) | [Wan 2.2 TI2V 5B](https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF), Q8_0 GGUF, 30 steps (`VIDEO_STEPS`) | 1280x704, 24 fps, 121 frames per scene | `Wan2.2-TI2V-5B-Q8_0.gguf` (5.4 GB), `wan2.2_vae.safetensors` (1.4 GB) |
 | `wan21-fast` | Wan 2.1 T2V 1.3B with a 4-step LoRA (below) | 832x480, 16 fps, 81 frames per scene | see below |
 
-Wan 2.2 5B looks close to real footage and keeps shapes steady, but one 5-second scene took
-about 40 minutes on an RTX 5050 Laptop with 24 GB RAM (it needs about 11 GB of RAM; close other
-large apps first). The 4-step Wan 2.1 setup takes about 3 minutes per scene but looks
+Wan 2.2 5B looks close to real footage and keeps shapes steady. On an RTX 5050 Laptop with
+24 GB RAM, one 5-second scene took about 40 minutes at the default 1280x704 and about 13 minutes
+at 832x480 (`VIDEO_SIZE=832x480`, still realistic, a little less detail). It needs about 11 GB of
+RAM; close other large apps first. The 4-step Wan 2.1 setup takes about 3 minutes per scene but looks
 oversaturated and plastic, and objects change shape between frames.
 
 Steps:

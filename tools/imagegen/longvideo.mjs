@@ -18,6 +18,10 @@ const NEGATIVE =
 
 // VIDEO_MODEL picks the model. "wan22-5b" (default when its files exist) is Wan 2.2 TI2V 5B:
 // 1280x704 at 24 fps, slower but much better. "wan21-fast" is Wan 2.1 1.3B with a 4-step LoRA.
+// VIDEO_SIZE (WxH, multiples of 32) changes Wan 2.2's size: 832x480 renders much faster than 1280x704.
+const [WIDTH, HEIGHT] = (process.env.VIDEO_SIZE || "1280x704").split("x").map(Number);
+if (!(WIDTH % 32 === 0 && HEIGHT % 32 === 0 && WIDTH >= 256 && HEIGHT >= 256))
+  throw new Error(`VIDEO_SIZE must be WxH in multiples of 32, got ${process.env.VIDEO_SIZE}`);
 const PROFILES = {
   "wan22-5b": {
     fps: 24,
@@ -27,7 +31,7 @@ const PROFILES = {
       "--diffusion-model", join(MODELS, "Wan2.2-TI2V-5B-Q8_0.gguf"),
       "--vae", join(MODELS, "wan2.2_vae.safetensors"),
       "--cfg-scale", "5.0", "--sampling-method", "euler", "--steps", process.env.VIDEO_STEPS || "30",
-      "--flow-shift", "5.0", "-W", "1280", "-H", "704", "-n", NEGATIVE, "--offload-to-cpu",
+      "--flow-shift", "5.0", "-W", String(WIDTH), "-H", String(HEIGHT), "-n", NEGATIVE, "--offload-to-cpu",
     ],
     prompt: (p) => p,
   },
@@ -208,7 +212,7 @@ async function joinClips(clips, out) {
   return frames.length;
 }
 
-log(`Long video (${modelName}): ${seconds}s requested, ${scenes} scenes of ~${SCENE_SECONDS.toFixed(1)}s`);
+log(`Long video (${modelName}${modelName === "wan22-5b" ? ` ${WIDTH}x${HEIGHT}` : ""}):${seconds}s requested, ${scenes} scenes of ~${SCENE_SECONDS.toFixed(1)}s`);
 const plan = await storyboard();
 log(`Title: ${plan.title}`);
 log(`Style: ${plan.style}`);

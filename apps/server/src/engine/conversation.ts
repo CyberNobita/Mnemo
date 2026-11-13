@@ -14,7 +14,7 @@ import { calendarRangeSchema } from "../../../../packages/domain/src/index.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { computerInstructions, computerTools } from "../computer-tools.ts";
 import type { Config } from "../config.ts";
-import { EXPECTED_MINUTES_PER_SCENE } from "../image-gen.ts";
+import { expectedMinutesPerScene } from "../image-gen.ts";
 import { createJevAdapter, type JevAdapter } from "../jev/adapter.ts";
 import { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
@@ -400,7 +400,7 @@ export class ConversationAgent extends AbstractAgent {
                       status: "running",
                       seconds: seconds ?? 5,
                       scenes,
-                      note: `Rendering ${scenes} scene${scenes === 1 ? "" : "s"} in the background; roughly ${scenes * EXPECTED_MINUTES_PER_SCENE} minutes. The chat card shows progress and plays the video when ready.`,
+                      note: `Rendering ${scenes} scene${scenes === 1 ? "" : "s"} in the background; roughly ${scenes * expectedMinutesPerScene()} minutes. The chat card shows progress and plays the video when ready.`,
                     };
                   } catch (error) {
                     return {

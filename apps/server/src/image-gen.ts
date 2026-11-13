@@ -55,8 +55,12 @@ export type GeneratedMedia = {
 /** Scenes of about 5 seconds each; a long video gets this much time per scene. */
 const SCENE_SECONDS = 5;
 const MINUTES_PER_SCENE = 90;
-/** Measured render time of one scene with the default model (RTX 5050 Laptop). */
-export const EXPECTED_MINUTES_PER_SCENE = 40;
+/** Measured render time of one scene with Wan 2.2 5B on an RTX 5050 Laptop: about 40 minutes at
+ * the default 1280x704 and 13 minutes at 832x480 (VIDEO_SIZE). */
+export function expectedMinutesPerScene(size = process.env.VIDEO_SIZE) {
+  const width = Number(size?.split("x")[0]) || 1280;
+  return width <= 832 ? 13 : 40;
+}
 
 type ScriptResult = {
   prompt?: unknown;
