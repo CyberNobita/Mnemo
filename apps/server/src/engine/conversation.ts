@@ -373,11 +373,38 @@ export class ConversationAgent extends AbstractAgent {
         ? [
             defineTool({
               name: "generate_video",
-              description:
-                "Create a short (about 2 second, 832x480) video clip on this computer's GPU from the user's idea using a local text-to-video model. Takes several minutes. The chat shows the video automatically. Returns the video ID and the prompt used.",
-              parameters: z.object({ idea: z.string().trim().min(1).max(1000) }),
-              execute: async ({ idea }) => {
+              description: images.longVideoEnabled
+                ? "Create a video (832x480) on this computer's GPU from the user's idea using a local text-to-video model. Without seconds (or up to 5) it makes one ~2 second clip and returns when done (several minutes). With seconds from 6 to 180 it plans scenes of ~5 seconds, renders and joins them in the background, and returns at once with status running; the chat card shows scene progress and plays the video when it is ready. Returns the video ID."
+                : "Create a short (about 2 second, 832x480) video clip on this computer's GPU from the user's idea using a local text-to-video model. Takes several minutes. The chat shows the video automatically. Returns the video ID and the prompt used.",
+              parameters: z.object({
+                idea: z.string().trim().min(1).max(1000),
+                seconds: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .max(180)
+                  .optional()
+                  .describe("Requested length in seconds; over 5 makes a long multi-scene video"),
+              }),
+              execute: async ({ idea, seconds }) => {
                 browserAbort.signal.throwIfAborted();
+                if (seconds && seconds > 5 && images.longVideoEnabled) {
+                  try {
+                    const video = await images.startLongVideo(this.owner, idea, seconds);
+                    const scenes = video.progress?.total ?? 1;
+                    return {
+                      id: video.id,
+                      status: "running",
+                      seconds,
+                      scenes,
+                      note: `Rendering ${scenes} scenes in the background; roughly ${scenes * 3}-${scenes * 5} minutes. The chat card shows progress and plays the video when ready.`,
+                    };
+                  } catch (error) {
+                    return {
+                      error: error instanceof Error ? error.message : "Could not start the video",
+                    };
+                  }
+                }
                 try {
                   const video = await images.generateVideo(this.owner, idea, browserAbort.signal);
                   return { id: video.id, prompt: video.prompt };
@@ -464,7 +491,11 @@ export class ConversationAgent extends AbstractAgent {
           ? " When the user asks for a picture, image, photo or artwork, call generate_image once with their idea (translated to English, keeping every detail they asked for); do not delegate it. Pass minScore or maxRounds only if the user asks for a quality level or number of tries. The chat shows the image itself when it passed; reply briefly with the final prompt and score. If passed is false, say the quality target was not reached after the given rounds and offer to try again. If it returns an error, report it."
           : "") +
         (images?.videoEnabled
-          ? " When the user asks for a video, clip or animation, call generate_video once with their idea (translated to English, keeping every detail); do not delegate it. The chat shows the video itself; reply briefly with the prompt. If it returns an error, report it."
+          ? " When the user asks for a video, clip or animation, call generate_video once with their idea (translated to English, keeping every detail); do not delegate it. If they ask for a length (for example 30 seconds or 2 minutes), pass it as seconds." +
+            (images.longVideoEnabled
+              ? " A video longer than 5 seconds runs in the background: tell the user how many scenes and roughly how long it will take, and that the card shows progress."
+              : " Only ~2 second clips are possible; say so if they ask for longer.") +
+            " The chat shows the video itself; reply briefly with the prompt. If it returns an error, report it."
           : "") +
         computerInstructions(this.config.computerProvider) +
         (this.config.webSearchEnabled ? searchInstructions : ""),

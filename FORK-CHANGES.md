@@ -86,9 +86,14 @@ All providers return the same bounded result shape (10 sources, 30,000 excerpt c
   at a time with a 30-minute limit. It stores results in `DATA_DIR/images` and serves them
   through signed URLs: `GET /api/images/:id` and `GET /api/images/:id/content`.
 - `engine/conversation.ts`: chat tools `generate_image` (`idea`, `minScore`, `maxRounds`) and
-  `generate_video` (`idea`).
+  `generate_video` (`idea`, optional `seconds`).
+- Long videos (`LONGVIDEO_SCRIPT`, `seconds` 6-180): a storyboard of ~5-second scenes rendered
+  with a 4-step distilled LoRA and joined into one video. They run in the background, so the
+  tool returns at once; the record stays `running` with scene progress, and a server restart
+  marks an unfinished video as failed.
 - `apps/mobile/src/image-tool-card.tsx` (new), `chat.tsx`: inline image and video cards. An
-  image that misses its quality target is not shown.
+  image that misses its quality target is not shown. A long video's card checks progress every
+  15 seconds, shows "scene x of y" with a progress bar, and plays the video when it is ready.
 - `tools/imagegen/`: the generation scripts. See [tools/imagegen/README.md](tools/imagegen/README.md).
 
 ### 6. Local model and launcher
