@@ -453,7 +453,7 @@ export async function createApp(
     return new Response(body, { status: response.status, headers: response.headers });
   });
   app.get("/", (c) =>
-    c.json({ name: "OpenMuse", app: "http://localhost:8081", health: "/api/health" }),
+    c.json({ name: "Mnemo", app: "http://localhost:8081", health: "/api/health" }),
   );
   return { app, auth, files, actions, workspace, agent, computer };
 }

@@ -1,11 +1,17 @@
-# LocalMuse: changes from OpenMuse
+# Mnemo: changes from OpenMuse
 
-LocalMuse is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) that runs on one Windows
+Mnemo is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) that runs on one Windows
 laptop with a local model, local chat storage, private web search and local image and video
 generation. Everything below is optional: with none of the new settings, the app behaves like
 upstream.
 
 Test machine: Windows 11, RTX 5050 Laptop (8 GB VRAM), 24 GB RAM.
+
+## Name
+
+Mnemo is named after Mnemosyne, the goddess of memory and mother of the Muses: everything it
+remembers stays on your computer. The app, the assistant's default name and the browser title
+say Mnemo; package names and internal identifiers keep "openmuse" so upstream changes still merge.
 
 ## What runs where
 
