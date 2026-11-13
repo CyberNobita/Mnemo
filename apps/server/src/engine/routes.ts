@@ -38,6 +38,9 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.get("/tasks/:id", async (c) =>
     c.json(await service.detail(c.get("owner"), c.req.param("id"))),
   );
+  app.delete("/tasks/:id", async (c) =>
+    c.json(await service.deleteTask(c.get("owner"), c.req.param("id"))),
+  );
   app.post("/tasks/:id/control", async (c) => {
     const { action } = z
       .object({ action: z.enum(["pause", "resume", "cancel", "retry"]) })

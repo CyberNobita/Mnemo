@@ -5,6 +5,7 @@ import {
   type CopilotKitIntelligence,
   CopilotRuntime,
   createCopilotHonoHandler,
+  InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2";
 import type { Auth } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -29,7 +30,7 @@ export function makeRuntime(
   config: Config,
   service: AgentService,
   auth: Auth,
-  intelligence: CopilotKitIntelligence,
+  intelligence: CopilotKitIntelligence | undefined,
 ) {
   // Built on first use, then shared so live mode reuses one TypeSafe client across requests.
   let jevAdapter: JevAdapter | undefined;
@@ -55,16 +56,26 @@ export function makeRuntime(
               sharedJevAdapter(),
             ),
   });
-  const runtime = new CopilotRuntime({
-    agents,
-    intelligence,
-    // The shared CopilotKit sink carries this tag onto existing PostHog events.
-    telemetryProperties: { accessibility_title: "OpenMuse" },
-    identifyUser: async (request) => ({
-      id: await auth.owner(request.headers.get("authorization") ?? undefined),
-      name: "OpenMuse user",
-    }),
-    generateThreadNames: false,
+  const identifyUser = async (request: Request) => ({
+    id: await auth.owner(request.headers.get("authorization") ?? undefined),
+    name: "OpenMuse user",
   });
+  // The shared CopilotKit sink carries this tag onto existing PostHog events.
+  const telemetryProperties = { accessibility_title: "OpenMuse" };
+  const runtime = intelligence
+    ? new CopilotRuntime({
+        agents,
+        intelligence,
+        telemetryProperties,
+        identifyUser,
+        generateThreadNames: false,
+      })
+    : // Local chats: runs stream straight back and the app saves the conversation itself.
+      new CopilotRuntime({
+        agents,
+        runner: new InMemoryAgentRunner(),
+        telemetryProperties,
+        identifyUser,
+      });
   return createCopilotHonoHandler({ runtime, basePath: "/api/copilotkit" });
 }

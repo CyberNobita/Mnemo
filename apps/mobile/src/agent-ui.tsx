@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Square,
   Target,
+  Trash2,
   Users,
   X,
 } from "lucide-react-native";
@@ -267,7 +268,8 @@ export function EvidenceList({ items }: { items: Evidence[] }) {
 }
 export function TaskDetail({ taskId }: { taskId: string }) {
   const { api, workspace, close, open, refresh: refreshWorkspace } = useWorkspace();
-  const { data, mutate } = useAgentWorkspace();
+  const { data, mutate, refresh } = useAgentWorkspace();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [detail, setDetail] = useState<{
     task: AgentTask;
     events: RunEvent[];
@@ -319,6 +321,20 @@ export function TaskDetail({ taskId }: { taskId: string }) {
       }
     } catch (e) {
       setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function deleteTask() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.request(`/api/agent/tasks/${taskId}`, undefined, "DELETE");
+      await refresh().catch(() => {});
+      close();
+    } catch (e) {
+      setError(errorText(e));
+      setConfirmDelete(false);
     } finally {
       setBusy(false);
     }
@@ -439,7 +455,29 @@ export function TaskDetail({ taskId }: { taskId: string }) {
                 Cancel task
               </Button>
             )}
+            {task.kind !== "monitor" && task.status !== "running" && !confirmDelete && (
+              <Button small danger icon={Trash2} busy={busy} onPress={() => setConfirmDelete(true)}>
+                Delete
+              </Button>
+            )}
           </View>
+          {confirmDelete && (
+            <Card style={{ gap: 10 }}>
+              <Text style={s.heading}>Delete this task permanently?</Text>
+              <Text style={s.muted}>
+                Its steps, reports and pending reviews are removed and cannot be restored. Files
+                saved to your library stay.
+              </Text>
+              <View style={[s.row, { gap: 8 }]}>
+                <Button small danger icon={Trash2} busy={busy} onPress={() => void deleteTask()}>
+                  Delete permanently
+                </Button>
+                <Button small disabled={busy} onPress={() => setConfirmDelete(false)}>
+                  Keep task
+                </Button>
+              </View>
+            </Card>
+          )}
           {task.status === "waiting_approval" && (
             <Card style={{ backgroundColor: colors.lavender, gap: 12 }}>
               <Text style={s.heading}>Ready for your review</Text>

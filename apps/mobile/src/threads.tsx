@@ -8,8 +8,17 @@ import {
   Plus,
   RefreshCw,
   Settings2,
+  Trash2,
 } from "lucide-react-native";
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Button, colors, ErrorNotice, Field, LinkRow, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -22,8 +31,59 @@ function newThreadId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 export type Selection = { id: string; existing: boolean };
+type ThreadSummary = { id: string; name?: string | null; archived?: boolean };
+/** Side chats saved on this computer, with the same shape the sheet uses for Rich Threads. */
+function useLocalThreads(enabled: boolean) {
+  const { api } = useWorkspace();
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [isLoading, setLoading] = useState(enabled);
+  const [isMutating, setMutating] = useState(false);
+  const [error, setError] = useState<Error>();
+  const refetchThreads = useCallback(() => {
+    if (!enabled) return;
+    setLoading(true);
+    api
+      .request<{ threads: ThreadSummary[] }>("/api/conversations")
+      .then((result) => {
+        setThreads(result.threads);
+        setError(undefined);
+      })
+      .catch((e) => setError(e instanceof Error ? e : new Error(String(e))))
+      .finally(() => setLoading(false));
+  }, [api, enabled]);
+  useEffect(refetchThreads, [refetchThreads]);
+  const change = useCallback(
+    async (id: string, body: unknown, method: "PATCH" | "DELETE") => {
+      setMutating(true);
+      try {
+        await api.request(`/api/conversations/${encodeURIComponent(id)}`, body, method);
+        refetchThreads();
+      } finally {
+        setMutating(false);
+      }
+    },
+    [api, refetchThreads],
+  );
+  return {
+    threads,
+    isLoading,
+    isMutating,
+    error,
+    refetchThreads,
+    renameThread: (id: string, name: string) => change(id, { name }, "PATCH"),
+    archiveThread: (id: string) => change(id, { archived: true }, "PATCH"),
+    unarchiveThread: (id: string) => change(id, { archived: false }, "PATCH"),
+    deleteThread: (id: string) => change(id, undefined, "DELETE"),
+    hasMoreThreads: false,
+    isFetchingMoreThreads: false,
+    fetchMoreThreads: () => {},
+    fetchMoreError: undefined as Error | undefined,
+  };
+}
 const ThreadContext = createContext<{
   enabled: boolean;
+  /** Conversations are saved on this computer (no CopilotKit Intelligence). */
+  local: boolean;
   selection: Selection;
   visited: Selection[];
   mainId: string;
@@ -37,7 +97,8 @@ const ThreadContext = createContext<{
 export function ThreadsProvider({ children }: { children: ReactNode }) {
   const { workspace, navigate, api } = useWorkspace();
   const handledPrompt = useRef(0);
-  const enabled = workspace.runtime.richThreads === true;
+  const local = workspace.runtime.localThreads === true;
+  const enabled = workspace.runtime.richThreads === true || local;
   const [selection, setSelection] = useState<Selection>({ id: "local", existing: false });
   const [visited, setVisited] = useState<Selection[]>([]);
   const [mainId, setMainId] = useState("local");
@@ -80,6 +141,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
           return true;
         },
         enabled,
+        local,
         mainId,
         visited,
         loading,
@@ -102,6 +164,7 @@ export function useMuseThread() {
 export function ThreadsSheet({ onClose }: { onClose: () => void }) {
   const {
     enabled,
+    local,
     selection,
     visited,
     mainId,
@@ -112,7 +175,15 @@ export function ThreadsSheet({ onClose }: { onClose: () => void }) {
     start,
   } = useMuseThread();
   const { workspace, open, navigate, refresh } = useWorkspace();
-  const threads = useThreads({ agentId: "default", enabled, includeArchived: true, limit: 20 });
+  const rich = useThreads({
+    agentId: "default",
+    enabled: enabled && !local,
+    includeArchived: true,
+    limit: 20,
+  });
+  const saved = useLocalThreads(enabled && local);
+  const threads = local ? saved : rich;
+  const [confirmDelete, setConfirmDelete] = useState<string>();
   const [editing, setEditing] = useState<string>();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -257,7 +328,43 @@ export function ThreadsSheet({ onClose }: { onClose: () => void }) {
                     >
                       {thread.archived ? "Restore" : "Archive"}
                     </Button>
+                    {local && confirmDelete !== thread.id && (
+                      <Button
+                        small
+                        danger
+                        icon={Trash2}
+                        disabled={saved.isMutating}
+                        onPress={() => setConfirmDelete(thread.id)}
+                      >
+                        Delete
+                      </Button>
+                    )}
                   </View>
+                  {local && confirmDelete === thread.id && (
+                    <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+                      <Text style={[s.small, { flexBasis: "100%" }]}>
+                        Delete this conversation permanently? It cannot be restored.
+                      </Text>
+                      <Button
+                        small
+                        danger
+                        icon={Trash2}
+                        disabled={saved.isMutating}
+                        onPress={() =>
+                          void mutate(async () => {
+                            await saved.deleteThread(thread.id);
+                            setConfirmDelete(undefined);
+                            if (selection.id === thread.id) select({ id: mainId, existing: true });
+                          })
+                        }
+                      >
+                        Delete permanently
+                      </Button>
+                      <Button small onPress={() => setConfirmDelete(undefined)}>
+                        Keep
+                      </Button>
+                    </View>
+                  )}
                 </View>
               ))}
             {!threads.isLoading &&

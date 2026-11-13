@@ -364,7 +364,8 @@ export class WorkspaceService {
         provider: this.config.agentBackend === "sample" ? "sample" : "model",
         configured: agentConfigured(this.config),
         openbotConfigured: false,
-        richThreads: true,
+        richThreads: !this.config.localChats,
+        localThreads: this.config.localChats === true,
       },
     };
   }

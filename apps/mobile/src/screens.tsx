@@ -1363,7 +1363,13 @@ export function ConnectionsScreen({ query = "" }: { query?: string }) {
               />
               <SettingsLine
                 label="Rich Threads"
-                value={w.runtime.richThreads ? "CopilotKit Intelligence" : "Not connected"}
+                value={
+                  w.runtime.localThreads
+                    ? "Saved on this computer"
+                    : w.runtime.richThreads
+                      ? "CopilotKit Intelligence"
+                      : "Not connected"
+                }
               />
               <Button
                 small

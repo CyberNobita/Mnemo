@@ -1,0 +1,14 @@
+# SearXNG for OpenMuse: local only, JSON API on, no rate limiter (only this computer uses it).
+use_default_settings: true
+general:
+  instance_name: "OpenMuse local search"
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+server:
+  secret_key: "CHANGE_ME_run_openssl_rand_hex_32"
+  limiter: false
+  image_proxy: true
+  method: "GET"

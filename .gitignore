@@ -11,3 +11,13 @@ apps/mobile/android/
 .DS_Store
 *.tsbuildinfo
 artifacts/
+
+# Added by CopilotKit CLI: credential files, which must never be committed.
+.env.*
+!.env.example
+
+# Added by CopilotKit CLI: browser snapshots a coding agent writes.
+.playwright-mcp/
+
+# CopilotKit CLI project binding (account identifiers)
+.copilotkit/

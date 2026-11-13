@@ -44,6 +44,8 @@ export interface Config {
   agentUrl?: string;
   agentToken?: string;
   intelligenceApiKey?: string;
+  /** Keep chat history on this computer instead of CopilotKit Intelligence (one main chat). */
+  localChats?: boolean;
   googleClientId?: string;
   googleClientSecret?: string;
   googleRedirectUri: string;
@@ -51,6 +53,8 @@ export interface Config {
   workerToken?: string;
   taskWorkerEnabled?: boolean;
   webSearchEnabled?: boolean;
+  imageGenScript?: string;
+  videoGenScript?: string;
   computerEnabled?: boolean;
   computerImage?: string;
   computerDeploymentId?: string;
@@ -77,9 +81,8 @@ export function required(name: string, message: string, value = process.env[name
   return value.trim();
 }
 
-export function assertApiDeploymentConfig(
-  config: Config,
-): asserts config is Config & { intelligenceApiKey: string } {
+export function assertApiDeploymentConfig(config: Config): void {
+  if (config.localChats) return;
   required(
     "CPK_INTELLIGENCE_API_KEY",
     intelligenceKeyRequiredMessage,
@@ -149,7 +152,11 @@ export function readConfig(): Config {
     agentBackend: backend,
     agentUrl: process.env.AGENT_URL,
     agentToken: process.env.AGENT_TOKEN,
-    intelligenceApiKey: required("CPK_INTELLIGENCE_API_KEY", intelligenceKeyRequiredMessage),
+    localChats: process.env.LOCAL_CHATS === "true",
+    intelligenceApiKey:
+      process.env.LOCAL_CHATS === "true"
+        ? undefined
+        : required("CPK_INTELLIGENCE_API_KEY", intelligenceKeyRequiredMessage),
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRedirectUri: `${publicUrl}/api/google/callback`,
@@ -157,6 +164,8 @@ export function readConfig(): Config {
     workerToken: process.env.WORKER_TOKEN,
     taskWorkerEnabled: process.env.TASK_WORKER_ENABLED !== "false",
     webSearchEnabled: process.env.WEB_SEARCH_ENABLED !== "false",
+    imageGenScript: process.env.IMAGEGEN_SCRIPT?.trim() || undefined,
+    videoGenScript: process.env.VIDEOGEN_SCRIPT?.trim() || undefined,
     computerEnabled: process.env.COMPUTER_ENABLED === "true",
     computerImage: process.env.COMPUTER_IMAGE ?? "openmuse-computer:local",
     // A blank line from .env is unset; otherwise every such install would share one name.

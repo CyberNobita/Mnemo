@@ -30,6 +30,7 @@ import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
 import { AppError } from "../errors.ts";
 import type { Files } from "../files.ts";
+import type { ImageGen } from "../image-gen.ts";
 import { backgroundFailure } from "../log.ts";
 import { SearchService } from "../search.ts";
 import type { WorkspaceService } from "../workspace.ts";
@@ -52,6 +53,7 @@ const terminal = new Set(["succeeded", "failed", "cancelled"]);
 export class AgentService {
   readonly worker: TaskWorker;
   readonly search: SearchService;
+  images?: ImageGen;
   private maintenance?: ReturnType<typeof setInterval>;
   private refreshing = false;
   constructor(
@@ -91,6 +93,10 @@ export class AgentService {
         await this.publishOutcome(owner, value);
       for (const { owner, value } of await this.db.scan<Monitor>("monitors"))
         await this.activateMonitor(owner, value);
+      // Updates about a deleted task point nowhere; drop them.
+      for (const { owner, value } of await this.db.scan<AgentNotification>("notifications"))
+        if (value.taskId && !(await this.db.get(owner, "tasks", value.taskId)))
+          await this.db.remove(owner, "notifications", value.id);
       for (const { owner, value } of await this.db.scan<Idea>("ideas"))
         if (
           value.status === "accepted" &&
@@ -244,6 +250,30 @@ export class AgentService {
     await this.ensure(owner);
     await this.db.insertIfAbsent(owner, "tasks", task);
     return (await this.db.get<AgentTask>(owner, "tasks", id)) ?? task;
+  }
+  /**
+   * Permanently removes a task with its steps, reports and pending reviews. Files it saved to
+   * the library and actions already carried out are kept. A running task must be stopped first.
+   */
+  async deleteTask(owner: string, id: string) {
+    let task = await this.getTask(owner, id);
+    if (task.kind === "monitor")
+      throw new AppError("Stop this watch from Monitors instead of deleting its task", 409);
+    if (task.status === "running")
+      throw new AppError("Cancel this task and wait for it to stop before deleting it", 409);
+    if (!terminal.has(task.status)) {
+      task = await this.control(owner, id, "cancel");
+      if (task.status === "running")
+        throw new AppError("Cancel this task and wait for it to stop before deleting it", 409);
+    }
+    for (const action of await this.db.listByTaskId<ActionProposal>(owner, "actions", id))
+      if (action.status === "awaiting_review") await this.db.remove(owner, "actions", action.id);
+    await this.db.removeByTaskId(owner, "run-events", id);
+    await this.db.removeByTaskId(owner, "agent-artifacts", id);
+    await this.db.removeByTaskId(owner, "notifications", id);
+    await this.db.remove(owner, "search-sessions", `task:${id}`);
+    await this.db.remove(owner, "tasks", id);
+    return { deleted: id };
   }
   async control(owner: string, id: string, action: "pause" | "resume" | "cancel" | "retry") {
     const task = await this.getTask(owner, id);

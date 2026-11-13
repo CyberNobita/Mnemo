@@ -83,6 +83,13 @@ export class Store {
     );
     return value;
   }
+  async removeByTaskId(owner: string, kind: string, taskId: string): Promise<void> {
+    await this.db.query("DELETE FROM records WHERE owner=$1 AND kind=$2 AND data->>'taskId'=$3", [
+      owner,
+      kind,
+      taskId,
+    ]);
+  }
   async remove(owner: string, kind: string, id: string): Promise<void> {
     await this.db.query("DELETE FROM records WHERE owner=$1 AND kind=$2 AND id=$3", [
       owner,

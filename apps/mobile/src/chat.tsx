@@ -36,6 +36,7 @@ import {
   threadLocked,
 } from "./conversation-run";
 import { DesktopToolCard } from "./desktop-tool-card";
+import { ImageToolCard } from "./image-tool-card";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
 import { JevInteractionContext, JevToolCard } from "./jev-tool-card";
 import { MailToolCard } from "./mail-tool-card";
@@ -96,6 +97,32 @@ export function WorkspaceTools() {
     parameters: displayParameters,
     render: ({ toolCallId, result, status }) => (
       <DesktopToolCard toolCallId={toolCallId} result={result} loading={status !== "complete"} />
+    ),
+  });
+  useRenderTool({
+    name: "generate_image",
+    description: "Show a picture the agent is creating",
+    parameters: displayParameters,
+    render: ({ args, result, status }) => (
+      <ImageToolCard
+        kind="image"
+        idea={args.idea}
+        result={result}
+        loading={status !== "complete"}
+      />
+    ),
+  });
+  useRenderTool({
+    name: "generate_video",
+    description: "Show a video clip the agent is creating",
+    parameters: displayParameters,
+    render: ({ args, result, status }) => (
+      <ImageToolCard
+        kind="video"
+        idea={args.idea}
+        result={result}
+        loading={status !== "complete"}
+      />
     ),
   });
   useRenderTool({
@@ -214,9 +241,15 @@ export function ChatScreen({
 }) {
   const { api, workspace: w, refresh, navigate } = useWorkspace();
   const { data: agentWorkspace, refresh: refreshAgent } = useAgentWorkspace();
-  const { enabled: richThreads, mainId, claimPrompt } = useMuseThread();
+  const { enabled: threadsEnabled, local, mainId, claimPrompt } = useMuseThread();
+  // Rich Threads live in CopilotKit Intelligence; local threads are saved by this app.
+  const richThreads = threadsEnabled && !local;
   const selection = thread || { id: "local", existing: false };
-  const threadId = richThreads ? selection.id : "local-main";
+  const threadId = threadsEnabled ? selection.id : "local-main";
+  const savePath =
+    threadsEnabled && local
+      ? `/api/conversations/${encodeURIComponent(selection.id)}`
+      : "/api/conversation";
   const agentId = `openmuse-${threadId}`;
   const { agent, isReady } = useAgent({ agentId, runtimeAgentId: "default", threadId });
   const { copilotkit } = useCopilotKit();
@@ -297,7 +330,7 @@ export function ChatScreen({
             }
           }
         } else {
-          const { messages } = await api.request<{ messages: Message[] }>("/api/conversation");
+          const { messages } = await api.request<{ messages: Message[] }>(savePath);
           if (active) agent.setMessages(messages);
         }
         if (active) setLoaded(true);
@@ -316,11 +349,21 @@ export function ChatScreen({
       replay.unsubscribe();
       if (richThreads) void agent.detachActiveRun().catch(() => {});
     };
-  }, [agent, agentId, api, copilotkit, isReady, historyAttempt, richThreads, selection.existing]);
+  }, [
+    agent,
+    agentId,
+    api,
+    copilotkit,
+    isReady,
+    historyAttempt,
+    richThreads,
+    savePath,
+    selection.existing,
+  ]);
   const saveHistory = useCallback(async () => {
-    if (!richThreads) await api.request("/api/conversation", { messages: agent.messages }, "PUT");
+    if (!richThreads) await api.request(savePath, { messages: agent.messages }, "PUT");
     setSaveError("");
-  }, [agent, api, richThreads]);
+  }, [agent, api, richThreads, savePath]);
   /** Runs one turn; "held" means a queued message was refused by a lock and put back on hold. */
   const run = useCallback(
     async (message?: QueuedMessage): Promise<"held" | undefined> => {
@@ -706,7 +749,7 @@ export function ChatScreen({
             )}
           </>
         )}
-        {(!richThreads || selection.id === mainId) && <BackgroundUpdates />}
+        {(!threadsEnabled || selection.id === mainId) && <BackgroundUpdates />}
         {(busy || agent.isRunning) && (
           <View
             accessibilityLabel="Agent is working"

@@ -24,6 +24,7 @@ import { AgentService } from "./engine/service.ts";
 import { AppError } from "./errors.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
+import { ImageGen } from "./image-gen.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { WorkspaceService } from "./workspace.ts";
 
@@ -48,7 +49,12 @@ export async function createApp(
   const browser = new BrowserService(db, config, auth, files);
   const computer = new ComputerService(db, config, options.docker);
   const agent = new AgentService(db, config, workspace, files, actions, browser, computer);
-  const intelligence = new CopilotKitIntelligence({ apiKey: config.intelligenceApiKey });
+  const images = new ImageGen(db, config, auth);
+  if (images.enabled || images.videoEnabled) agent.images = images;
+  // With LOCAL_CHATS the chat is saved in this database and nothing is sent to CopilotKit Intelligence.
+  const intelligence = config.localChats
+    ? undefined
+    : new CopilotKitIntelligence({ apiKey: config.intelligenceApiKey ?? "" });
   const runtime = makeRuntime(config, agent, auth, intelligence);
   const app = new Hono<{ Variables: { owner: string } }>();
   const origins = new Set([...config.allowedOrigins, new URL(config.publicUrl).origin]);
@@ -136,7 +142,7 @@ export async function createApp(
     const method = c.req.method === "HEAD" ? "GET" : c.req.method;
     const signedRoute =
       (method === "GET" &&
-        /^\/api\/files\/[^/]+\/content$|^\/api\/browsers\/[^/]+\/(?:preview|console)$/.test(
+        /^\/api\/(?:files|images)\/[^/]+\/content$|^\/api\/browsers\/[^/]+\/(?:preview|console)$/.test(
           c.req.path,
         )) ||
       (method === "POST" && /^\/api\/browsers\/[^/]+\/console$/.test(c.req.path));
@@ -223,6 +229,8 @@ export async function createApp(
     });
     const main = await db.get<{ threadId: string }>(owner, "conversation-settings", "main");
     if (!main) throw new AppError("Main conversation could not be loaded", 503);
+    // Local chats: the main chat is the conversation saved as "default".
+    if (!intelligence) return c.json({ threadId: "default", existing: true });
     try {
       await intelligence.getOrCreateThread({
         threadId: main.threadId,
@@ -236,6 +244,85 @@ export async function createApp(
       );
     }
     return c.json({ threadId: main.threadId, existing: true });
+  });
+  // Local side chats (LOCAL_CHATS): each conversation is one record on this computer.
+  type LocalConversation = {
+    id: string;
+    name?: string;
+    archived?: boolean;
+    messages: unknown[];
+    createdAt?: string;
+    updatedAt?: string;
+  };
+  const conversationId = (id: string) => {
+    if (id !== "default" && !z.uuid().safeParse(id).success)
+      throw new AppError("Conversation not found", 404);
+    return id;
+  };
+  const firstUserText = (messages: unknown[]) => {
+    for (const message of messages) {
+      const m = message as { role?: string; content?: unknown };
+      if (m.role === "user" && typeof m.content === "string" && m.content.trim())
+        return m.content.trim().replace(/s+/g, " ").slice(0, 60);
+    }
+    return undefined;
+  };
+  app.get("/api/conversations", async (c) => {
+    const all = await db.list<LocalConversation>(c.get("owner"), "conversations");
+    return c.json({
+      threads: all
+        .filter((item) => item.id !== "default")
+        .map((item) => ({
+          id: item.id,
+          name: item.name ?? firstUserText(item.messages ?? []) ?? null,
+          archived: item.archived === true,
+          createdAt: item.createdAt ?? null,
+          updatedAt: item.updatedAt ?? null,
+        }))
+        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
+    });
+  });
+  app.get("/api/conversations/:id", async (c) => {
+    const id = conversationId(c.req.param("id"));
+    const saved = await db.get<LocalConversation>(c.get("owner"), "conversations", id);
+    return c.json({ messages: saved?.messages ?? [] });
+  });
+  app.put("/api/conversations/:id", async (c) => {
+    const id = conversationId(c.req.param("id"));
+    const body = await c.req.json();
+    const messages = z.array(z.unknown()).max(1000).parse(body.messages);
+    for (const message of messages) MessageSchema.parse(message);
+    const owner = c.get("owner");
+    const saved = await db.get<LocalConversation>(owner, "conversations", id);
+    const now = new Date().toISOString();
+    await db.put(owner, "conversations", {
+      ...saved,
+      id,
+      messages,
+      createdAt: saved?.createdAt ?? now,
+      updatedAt: now,
+    });
+    return c.json({ ok: true });
+  });
+  app.patch("/api/conversations/:id", async (c) => {
+    const id = conversationId(c.req.param("id"));
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(120).optional(),
+        archived: z.boolean().optional(),
+      })
+      .parse(await c.req.json());
+    const owner = c.get("owner");
+    const saved = await db.get<LocalConversation>(owner, "conversations", id);
+    if (!saved) throw new AppError("Conversation not found", 404);
+    await db.put(owner, "conversations", { ...saved, ...body });
+    return c.json({ ok: true });
+  });
+  app.delete("/api/conversations/:id", async (c) => {
+    const id = conversationId(c.req.param("id"));
+    if (id === "default") throw new AppError("The main chat cannot be deleted", 409);
+    await db.remove(c.get("owner"), "conversations", id);
+    return c.json({ deleted: id });
   });
   app.get("/api/conversation", async (c) =>
     c.json((await db.get(c.get("owner"), "conversations", "default")) ?? { messages: [] }),
@@ -266,6 +353,15 @@ export async function createApp(
     c.header("Content-Type", "application/pdf");
     c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`);
     return c.body(await files.bytes(c.get("owner"), file.id));
+  });
+  app.get("/api/images/:id", async (c) =>
+    c.json(await images.get(c.get("owner"), c.req.param("id"))),
+  );
+  app.get("/api/images/:id/content", async (c) => {
+    const { mimeType, bytes } = await images.content(c.get("owner"), c.req.param("id"));
+    c.header("Content-Type", mimeType);
+    c.header("Cache-Control", "private, max-age=600");
+    return c.body(bytes);
   });
   app.post("/api/files/:id/fill", async (c) => {
     const body = z

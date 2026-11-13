@@ -199,6 +199,8 @@ export interface Workspace {
     configured: boolean;
     openbotConfigured: boolean;
     richThreads?: boolean;
+    /** Side chats saved on this computer instead of CopilotKit Intelligence. */
+    localThreads?: boolean;
   };
 }
 
