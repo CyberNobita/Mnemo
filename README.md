@@ -1,3 +1,9 @@
+> [!NOTE]
+> **LocalMuse** is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) that runs
+> fully on your own computer: a local model through Ollama, chats saved in the local database,
+> private web search through SearXNG, and local image and video generation.
+> See [FORK-CHANGES.md](FORK-CHANGES.md) for every change and the setup steps.
+
   <div align="center">
 
 # OpenMuse
