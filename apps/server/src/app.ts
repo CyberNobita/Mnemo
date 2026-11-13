@@ -263,7 +263,7 @@ export async function createApp(
     for (const message of messages) {
       const m = message as { role?: string; content?: unknown };
       if (m.role === "user" && typeof m.content === "string" && m.content.trim())
-        return m.content.trim().replace(/s+/g, " ").slice(0, 60);
+        return m.content.trim().replace(/\s+/g, " ").slice(0, 60);
     }
     return undefined;
   };
