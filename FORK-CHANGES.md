@@ -1,6 +1,6 @@
 # LocalMuse: changes from OpenMuse
 
-LocalMuse is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) runs on one Windows
+LocalMuse is a fork of [CopilotKit/OpenMuse](https://github.com/CopilotKit/OpenMuse) that runs on one Windows
 laptop with a local model, local chat storage, private web search and local image and video
 generation. Everything below is optional: with none of the new settings, the app behaves like
 upstream.
