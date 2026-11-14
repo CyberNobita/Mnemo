@@ -71,8 +71,15 @@ It prints `PROGRESS {"done":n,"total":m}` after each scene. In OpenMuse, `genera
 for every video in the background (`LONGVIDEO_SCRIPT`), and the chat card shows the
 scene progress and plays the video when it is ready.
 
-Limits: each scene is generated on its own, so people and objects can change a little between
-scenes; there is no sound; the GPU is busy for the whole run.
+With Wan 2.2 5B, each scene after the first starts from the last frame of the scene before it
+(the model also takes a start picture), so people, clothes and the place stay the same and the
+scenes join without a cut. The storyboard then plans one continuous take with gentle camera
+moves, because a jump to another shot size blurs the picture. `VIDEO_CHAIN=0` renders every scene
+from text alone, with varied shot sizes; clothes and colours can then change between scenes.
+
+Limits: details still drift over a long video (in one test the light turned darker in the second
+scene and the camera wandered from the subject); there is no sound; the GPU is busy for the whole
+run.
 
 ## `make-image.bat`
 

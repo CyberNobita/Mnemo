@@ -34,6 +34,9 @@ const PROFILES = {
       "--flow-shift", "5.0", "-W", String(WIDTH), "-H", String(HEIGHT), "-n", NEGATIVE, "--offload-to-cpu",
     ],
     prompt: (p) => p,
+    // TI2V can start from a picture, so each scene continues from the last frame of the one
+    // before and keeps the same people, clothes and place. VIDEO_CHAIN=0 turns this off.
+    chain: process.env.VIDEO_CHAIN !== "0",
   },
   "wan21-fast": {
     fps: 16,
@@ -90,7 +93,12 @@ Return ONLY JSON: {"title": "...", "style": "...", "scenes": ["...", "..."]} wit
   lighting, colour palette and "cinematic, highly detailed, smooth motion, realistic". 25-45 words.
 - Each scene: ONE continuous 5-second shot that moves the story forward. Say what MOVES and how,
   and the camera movement (slow dolly-in, tracking shot, aerial pan, static tripod). 20-40 words.
-  Vary shot sizes (wide, medium, close-up). Do not repeat the style text. No text or signs.`;
+  SHOTS Do not repeat the style text. No text or signs.`;
+// A chained scene starts from the last frame of the previous one, so a cut to another shot size
+// makes the camera jump and blurs the picture; the film is then one continuous take.
+const SHOT_RULE = MODEL.chain
+  ? "The scenes are ONE continuous take: each starts exactly where the previous one ended,\n  with the same framing; only gentle camera moves (slow pan, slow dolly), no cuts, no aerial shots.\n  Keep the main subject in frame and the action on them; never turn the camera away to scenery."
+  : "Vary shot sizes (wide, medium, close-up).";
 
 async function storyboard() {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -103,7 +111,10 @@ async function storyboard() {
         keep_alive: 0,
         options: { num_ctx: 8192, temperature: 0.7 },
         messages: [
-          { role: "system", content: STORY_SYS.replace("exactly N", `exactly ${scenes}`) },
+          {
+            role: "system",
+            content: STORY_SYS.replace("exactly N", `exactly ${scenes}`).replace("SHOTS", SHOT_RULE),
+          },
           { role: "user", content: `Idea: ${idea}\nNumber of scenes: ${scenes}` },
         ],
       }),
@@ -136,11 +147,12 @@ async function unloadOllama() {
 }
 
 // The retry also decodes the video in time slices, which needs less GPU memory.
-function renderScene(prompt, file, seed, retry = false) {
+function renderScene(prompt, file, seed, retry = false, startImage = null) {
   const args = [
     "-M", "vid_gen",
     ...MODEL.args(), "--t5xxl", T5,
     "-p", MODEL.prompt(prompt),
+    ...(startImage ? ["-i", startImage] : []),
     "--video-frames", String(FRAMES), "--fps", String(FPS),
     "--clip-on-cpu", "--vae-tiling", "--mmap",
     ...(retry
@@ -186,7 +198,8 @@ function aviFrames(file) {
 // frames go into one file that ffmpeg reads as an image sequence.
 async function joinClips(clips, out) {
   const ffmpeg = findFfmpeg();
-  const frames = clips.flatMap((clip) => aviFrames(clip));
+  // A scene that starts from the previous scene's last frame repeats it, so it is dropped.
+  const frames = clips.flatMap((clip) => aviFrames(clip).slice(chained.has(clip) ? 1 : 0));
   if (!frames.length) throw new Error("the scene files contain no frames");
   const all = join(dirname(out), "frames.mjpeg");
   writeFileSync(all, Buffer.concat(frames));
@@ -223,6 +236,8 @@ await unloadOllama();
 const baseSeed = Math.floor(Math.random() * 2 ** 30);
 const clips = [];
 const failed = [];
+let startImage = null;
+const chained = new Set();
 for (const [index, scene] of plan.scenes.entries()) {
   const file = join(runDir, `scene${String(index + 1).padStart(2, "0")}.avi`);
   const prompt = `${plan.style}. ${scene}`;
@@ -230,7 +245,7 @@ for (const [index, scene] of plan.scenes.entries()) {
   let ok = false;
   for (let attempt = 0; attempt < 2 && !ok; attempt++) {
     try {
-      await renderScene(prompt, file, baseSeed + index * 7919 + attempt, attempt > 0);
+      await renderScene(prompt, file, baseSeed + index * 7919 + attempt, attempt > 0, startImage);
       ok = true;
     } catch (error) {
       log(`  scene ${index + 1} attempt ${attempt + 1} failed: ${String(error.message).slice(0, 300)}`);
@@ -238,6 +253,14 @@ for (const [index, scene] of plan.scenes.entries()) {
   }
   if (ok) {
     clips.push(file);
+    if (startImage) chained.add(file);
+    if (MODEL.chain) {
+      const frames = aviFrames(file);
+      if (frames.length) {
+        startImage = join(runDir, `scene${String(index + 1).padStart(2, "0")}-last.jpg`);
+        writeFileSync(startImage, frames[frames.length - 1]);
+      }
+    }
     log(`  scene ${index + 1}/${scenes} done (${((Date.now() - t0) / 1000).toFixed(0)}s): ${scene}`);
   } else failed.push(index + 1);
   progress(index + 1);

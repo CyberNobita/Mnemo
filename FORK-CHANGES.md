@@ -89,7 +89,8 @@ All providers return the same bounded result shape (10 sources, 30,000 excerpt c
   `generate_video` (`idea`, optional `seconds`).
 - Videos (`LONGVIDEO_SCRIPT`, `seconds` 1-180, default 5): a storyboard of ~5-second scenes
   rendered with Wan 2.2 TI2V 5B (1280x704 at 24 fps, or 832x480 with
-  `VIDEO_SIZE=832x480`, about 3 times faster), or with Wan 2.1 1.3B and a 4-step LoRA
+  `VIDEO_SIZE=832x480`, about 3 times faster; each scene starts from the last frame of the one
+  before), or with Wan 2.1 1.3B and a 4-step LoRA
   (`VIDEO_MODEL=wan21-fast`), and joined into one video. They run in the background, so the
   tool returns at once; the record stays `running` with scene progress, and a server restart
   marks an unfinished video as failed.
