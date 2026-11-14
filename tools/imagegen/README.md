@@ -101,7 +101,7 @@ The photo is cropped to its centre and resized to about one megapixel with multi
 
 | Mode | Model | Use | Time (RTX 5050 Laptop) |
 |---|---|---|---|
-| `edit` (default) | FLUX.1 Kontext dev, Q4_K_M GGUF, 24 steps, guidance 2.5 | A written change that keeps the rest: "make the shirt red", "remove the glasses" | see below |
+| `edit` (default) | FLUX.1 Kontext dev, Q4_K_M GGUF, 24 steps, guidance 2.5 | A written change that keeps the rest: "make the shirt red", "remove the glasses" | about 3.3 minutes |
 | `restyle` | RealVisXL V5 img2img, strength 0.6 (`RESTYLE_STRENGTH`) | The whole picture in another style, keeping its layout | about 45 seconds |
 
 `restyle` redraws everything, so objects can change too (in a test, a paper boat became a
