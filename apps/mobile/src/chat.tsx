@@ -1069,6 +1069,24 @@ export function ChatScreen({
                 +
               </Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Upload a photo"
+              accessibilityState={{ busy: uploading, disabled: uploading }}
+              disabled={uploading}
+              onPress={uploadPhoto}
+              style={({ pressed }) => ({
+                width: 44,
+                height: 44,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 24,
+                backgroundColor: pressed ? colors.sky : "transparent",
+                opacity: uploading ? 0.5 : 1,
+              })}
+            >
+              <ImageIcon size={22} color={colors.text} />
+            </Pressable>
             <TextInput
               accessibilityLabel="Message Mnemo"
               value={draft}
