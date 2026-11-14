@@ -388,12 +388,24 @@ export class ConversationAgent extends AbstractAgent {
                   .describe(
                     "Requested length in seconds (default 5); over 5 makes a multi-scene video",
                   ),
+                photoId: z
+                  .string()
+                  .uuid()
+                  .optional()
+                  .describe(
+                    "Image ID of an attached photo or earlier picture to start the video from",
+                  ),
               }),
-              execute: async ({ idea, seconds }) => {
+              execute: async ({ idea, seconds, photoId }) => {
                 browserAbort.signal.throwIfAborted();
                 if (images.longVideoEnabled) {
                   try {
-                    const video = await images.startLongVideo(this.owner, idea, seconds ?? 5);
+                    const video = await images.startLongVideo(
+                      this.owner,
+                      idea,
+                      seconds ?? 5,
+                      photoId,
+                    );
                     const scenes = video.progress?.total ?? 1;
                     return {
                       id: video.id,
@@ -408,6 +420,8 @@ export class ConversationAgent extends AbstractAgent {
                     };
                   }
                 }
+                if (photoId)
+                  return { error: "Starting a video from a photo needs the long video script" };
                 try {
                   const video = await images.generateVideo(this.owner, idea, browserAbort.signal);
                   return { id: video.id, prompt: video.prompt };
@@ -415,6 +429,45 @@ export class ConversationAgent extends AbstractAgent {
                   browserAbort.signal.throwIfAborted();
                   return {
                     error: error instanceof Error ? error.message : "Could not create the video",
+                  };
+                }
+              },
+            }),
+          ]
+        : []),
+      ...(images?.editEnabled
+        ? [
+            defineTool({
+              name: "edit_image",
+              description:
+                "Change an attached photo or an earlier picture on this computer's GPU. mode edit (default) follows a written change such as 'make the shirt red' or 'remove the glasses' and keeps the rest of the photo (FLUX.1 Kontext, a few minutes). mode restyle redraws the whole picture from a description in a new style, such as an oil painting or a night scene, keeping its layout (SDXL, about 1 minute). The chat shows the new picture. Returns its image ID.",
+              parameters: z.object({
+                photoId: z.string().uuid().describe("Image ID of the photo or picture to change"),
+                instruction: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(1000)
+                  .describe(
+                    "In English. For edit: the change only, as an instruction. For restyle: a description of the whole new picture.",
+                  ),
+                mode: z.enum(["edit", "restyle"]).optional(),
+              }),
+              execute: async ({ photoId, instruction, mode }) => {
+                browserAbort.signal.throwIfAborted();
+                try {
+                  const image = await images.edit(
+                    this.owner,
+                    photoId,
+                    instruction,
+                    mode ?? "edit",
+                    browserAbort.signal,
+                  );
+                  return { id: image.id, prompt: image.prompt, passed: true, sourceId: photoId };
+                } catch (error) {
+                  browserAbort.signal.throwIfAborted();
+                  return {
+                    error: error instanceof Error ? error.message : "Could not change the photo",
                   };
                 }
               },
@@ -499,6 +552,12 @@ export class ConversationAgent extends AbstractAgent {
               ? " Videos run in the background: tell the user how many scenes and roughly how long it will take (from the note), and that the card shows progress."
               : " Only ~2 second clips are possible; say so if they ask for longer.") +
             " The chat shows the video itself; reply briefly with the prompt. If it returns an error, report it."
+          : "") +
+        (images?.editEnabled
+          ? " A user message can end with 'Attached photos: image ID ...'. To change such a photo or an earlier picture, call edit_image once with its photoId and the change in English: mode edit for specific changes (colours, adding or removing things, text), mode restyle when they want the whole picture in another style. Do not use generate_image for that. For edit, write the instruction as the result the user wants, for example 'Change the scarf from red to yellow', and translate Hindi words exactly (laal red, peela yellow, neela blue, hara green, kaala black, safed white, gulabi pink, bhoora brown, narangi orange, baingani purple; hatao remove, lagao add). The chat shows the new picture; reply briefly. If it returns an error, report it."
+          : "") +
+        (images?.longVideoEnabled
+          ? " To animate an attached photo or make a video from it, call generate_video with photoId and an idea describing the motion."
           : "") +
         computerInstructions(this.config.computerProvider) +
         (this.config.webSearchEnabled ? searchInstructions : ""),

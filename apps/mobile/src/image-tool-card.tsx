@@ -46,8 +46,11 @@ export function ImageToolCard({
   idea,
   result,
   loading,
+  editing = false,
 }: {
   kind: "image" | "video";
+  /** The picture is a change to a photo (edit_image) rather than a new one. */
+  editing?: boolean;
   idea?: unknown;
   result: unknown;
   loading: boolean;
@@ -88,7 +91,9 @@ export function ImageToolCard({
   const background = media?.status ?? (value.status === "running" ? "running" : undefined);
   const progress = media?.progress ?? (value.scenes ? { done: 0, total: value.scenes } : undefined);
   const title = loading
-    ? `Creating ${noun.toLowerCase()}…`
+    ? editing
+      ? "Changing the photo…"
+      : `Creating ${noun.toLowerCase()}…`
     : value.error || background === "failed"
       ? `${noun} failed`
       : background === "running"
@@ -128,7 +133,9 @@ export function ImageToolCard({
         <Text style={s.small}>
           {kind === "video"
             ? "This runs on your GPU and takes several minutes."
-            : "This runs on your GPU. Each try takes about 1.5 minutes, and it keeps improving until the quality target is met."}
+            : editing
+              ? "This runs on your GPU and takes one to a few minutes."
+              : "This runs on your GPU. Each try takes about 1.5 minutes, and it keeps improving until the quality target is met."}
         </Text>
       )}
       {hidden && (

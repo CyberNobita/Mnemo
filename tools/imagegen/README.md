@@ -81,6 +81,41 @@ Limits: details still drift over a long video (in one test the light turned dark
 scene and the camera wandered from the subject); there is no sound; the GPU is busy for the whole
 run.
 
+### Starting from a photo
+
+With `START_IMAGE=photo.jpg` (OpenMuse sets it when `generate_video` gets a `photoId`), the
+first scene starts exactly from that photo. `gemma3:4b` describes the photo so the storyboard
+keeps its subject, place and light, and a portrait photo makes a portrait video. This needs
+Wan 2.2 5B. On an RTX 5050 Laptop a 5-second video from a photo took about 13 minutes at
+832x480, and the person, clothes and boat stayed the same for the whole clip.
+
+## `edit.mjs`: change a photo
+
+```
+node edit.mjs photo.jpg "instruction" [edit|restyle]
+```
+
+The photo is cropped to its centre and resized to about one megapixel with multiples of 64
+(`photo.mjs`, which uses Windows' System.Drawing and respects EXIF rotation). It writes
+`best.png`.
+
+| Mode | Model | Use | Time (RTX 5050 Laptop) |
+|---|---|---|---|
+| `edit` (default) | FLUX.1 Kontext dev, Q4_K_M GGUF, 24 steps, guidance 2.5 | A written change that keeps the rest: "make the shirt red", "remove the glasses" | see below |
+| `restyle` | RealVisXL V5 img2img, strength 0.6 (`RESTYLE_STRENGTH`) | The whole picture in another style, keeping its layout | about 45 seconds |
+
+`restyle` redraws everything, so objects can change too (in a test, a paper boat became a
+painted wooden boat). Kontext needs these files in `D:\models\flux`:
+
+| File | Size | Source |
+|---|---|---|
+| `flux1-kontext-dev-Q4_K_M.gguf` | 6.9 GB | [QuantStack/FLUX.1-Kontext-dev-GGUF](https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF) |
+| `t5-v1_1-xxl-encoder-Q5_K_M.gguf` | 3.4 GB | [city96/t5-v1_1-xxl-encoder-gguf](https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf) |
+| `clip_l.safetensors` | 0.25 GB | [comfyanonymous/flux_text_encoders](https://huggingface.co/comfyanonymous/flux_text_encoders) |
+| `ae.safetensors` | 0.33 GB | [Comfy-Org/Lumina-Image-2](https://huggingface.co/Comfy-Org/Lumina-Image-2) (`split_files/vae`) |
+
+FLUX.1 Kontext dev is under the FLUX.1 [dev] Non-Commercial License.
+
 ## `make-image.bat`
 
 A Windows shortcut for `loop.mjs`. It asks for an idea when you run it without one.

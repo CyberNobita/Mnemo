@@ -50,7 +50,7 @@ export async function createApp(
   const computer = new ComputerService(db, config, options.docker);
   const agent = new AgentService(db, config, workspace, files, actions, browser, computer);
   const images = new ImageGen(db, config, auth);
-  if (images.enabled || images.videoEnabled) agent.images = images;
+  if (images.enabled || images.videoEnabled || images.editEnabled) agent.images = images;
   // With LOCAL_CHATS the chat is saved in this database and nothing is sent to CopilotKit Intelligence.
   const intelligence = config.localChats
     ? undefined
@@ -79,7 +79,8 @@ export async function createApp(
     "*",
     bodyLimit({
       maxSize: 12 * 1024 * 1024,
-      onError: (c) => c.json({ error: "Request is too large; PDFs must be 10 MB or smaller" }, 413),
+      onError: (c) =>
+        c.json({ error: "Request is too large; files must be 10 MB or smaller" }, 413),
     }),
   );
   app.use("/api/*", rateLimit(Boolean(config.trustProxy)));
@@ -353,6 +354,15 @@ export async function createApp(
     c.header("Content-Type", "application/pdf");
     c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`);
     return c.body(await files.bytes(c.get("owner"), file.id));
+  });
+  app.post("/api/images", async (c) => {
+    const data = await c.req.parseBody();
+    const file = data.file;
+    if (!(file instanceof File)) throw new AppError("Choose a JPEG or PNG photo");
+    return c.json(
+      await images.upload(c.get("owner"), new Uint8Array(await file.arrayBuffer()), file.name),
+      201,
+    );
   });
   app.get("/api/images/:id", async (c) =>
     c.json(await images.get(c.get("owner"), c.req.param("id"))),

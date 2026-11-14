@@ -57,6 +57,8 @@ export interface Config {
   videoGenScript?: string;
   /** Script for long videos (several scenes joined); runs in the background. */
   longVideoScript?: string;
+  /** Script that changes a photo (written edit or restyle). */
+  imageEditScript?: string;
   computerEnabled?: boolean;
   computerImage?: string;
   computerDeploymentId?: string;
@@ -169,6 +171,7 @@ export function readConfig(): Config {
     imageGenScript: process.env.IMAGEGEN_SCRIPT?.trim() || undefined,
     videoGenScript: process.env.VIDEOGEN_SCRIPT?.trim() || undefined,
     longVideoScript: process.env.LONGVIDEO_SCRIPT?.trim() || undefined,
+    imageEditScript: process.env.IMAGEEDIT_SCRIPT?.trim() || undefined,
     computerEnabled: process.env.COMPUTER_ENABLED === "true",
     computerImage: process.env.COMPUTER_IMAGE ?? "openmuse-computer:local",
     // A blank line from .env is unset; otherwise every such install would share one name.

@@ -7,9 +7,12 @@ import {
   useRenderTool,
   useRenderToolCall,
 } from "@copilotkit/react-native/headless";
-import { ArrowDown, ArrowUp, FileText, RotateCcw, Square, X } from "lucide-react-native";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import { ArrowDown, ArrowUp, FileText, ImageIcon, RotateCcw, Square, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -23,6 +26,7 @@ import {
 import { z } from "zod";
 import { ArtifactCard } from "./agent-ui";
 import { useAgentWorkspace } from "./agent-workspace";
+import { API_URL } from "./api";
 import { AssistantResponse } from "./assistant-response";
 import { BackgroundUpdates } from "./background-updates";
 import { BrowserRunContext, BrowserToolCard } from "./browser-tool-card";
@@ -120,6 +124,20 @@ export function WorkspaceTools() {
       <ImageToolCard
         kind="video"
         idea={args.idea}
+        result={result}
+        loading={status !== "complete"}
+      />
+    ),
+  });
+  useRenderTool({
+    name: "edit_image",
+    description: "Show a photo the agent is changing",
+    parameters: displayParameters,
+    render: ({ args, result, status }) => (
+      <ImageToolCard
+        kind="image"
+        editing
+        idea={args.instruction}
         result={result}
         loading={status !== "complete"}
       />
@@ -265,6 +283,47 @@ export function ChatScreen({
   const [syncing, setSyncing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
+  /** Photos uploaded for the next message; the agent gets their image IDs. */
+  const [photos, setPhotos] = useState<{ id: string; name: string; url: string }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  async function uploadPhoto() {
+    setError("");
+    setUploading(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const file = result.assets[0];
+      let photo: { id: string; url: string };
+      if (Platform.OS === "web") {
+        if (!file.file)
+          throw new Error("The selected photo could not be read. Please choose it again.");
+        const form = new FormData();
+        form.append("file", file.file, file.name);
+        photo = await api.request<{ id: string; url: string }>("/api/images", form);
+      } else {
+        const upload = await FileSystem.uploadAsync(`${API_URL}/api/images`, file.uri, {
+          httpMethod: "POST",
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: "file",
+          mimeType: file.mimeType ?? "image/jpeg",
+          headers: { Authorization: `Bearer ${api.token}` },
+        });
+        const payload = JSON.parse(upload.body);
+        if (upload.status < 200 || upload.status >= 300)
+          throw new Error(payload.error || "Could not upload this photo.");
+        photo = payload;
+      }
+      setPhotos((list) => [...list, { id: photo.id, name: file.name, url: api.url(photo.url) }]);
+      setPicking(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
   const list = useRef<ScrollView>(null);
   const [queue] = useState(() => new ConversationQueue());
   const choiceCompletions = useRef(
@@ -509,8 +568,12 @@ export function ChatScreen({
       text +
         (files.length
           ? `\n\nAttached documents: ${files.map((f) => `${f.name} (artifact ID: ${f.id})`).join(", ")}`
+          : "") +
+        (photos.length
+          ? `\n\nAttached photos: ${photos.map((p) => `image ID ${p.id}`).join(", ")}`
           : ""),
     );
+    setPhotos([]);
     setDraft("");
     setInputHeight(44);
     setAttachments([]);
@@ -870,7 +933,7 @@ export function ChatScreen({
         )}
         {picking && (
           <Card style={{ marginBottom: 12, padding: 15 }}>
-            <Text style={s.heading}>Add a document</Text>
+            <Text style={s.heading}>Add a document or photo</Text>
             <ScrollView style={{ maxHeight: 230 }} keyboardShouldPersistTaps="handled">
               {w.files.length ? (
                 w.files.map((f) => (
@@ -891,13 +954,14 @@ export function ChatScreen({
                 <Text style={s.muted}>Import a PDF in Files to use it in a conversation.</Text>
               )}
             </ScrollView>
-            <Button
-              small
-              onPress={() => setPicking(false)}
-              style={{ alignSelf: "flex-end", marginTop: 8 }}
-            >
-              Done
-            </Button>
+            <View style={[s.row, { justifyContent: "flex-end", gap: 8, marginTop: 8 }]}>
+              <Button small disabled={uploading} onPress={uploadPhoto}>
+                {uploading ? "Uploading…" : "Upload a photo"}
+              </Button>
+              <Button small onPress={() => setPicking(false)}>
+                Done
+              </Button>
+            </View>
           </Card>
         )}
         <View
@@ -914,6 +978,44 @@ export function ChatScreen({
             elevation: 4,
           }}
         >
+          {photos.length > 0 && (
+            <View style={[s.row, { gap: 8, flexWrap: "wrap", padding: 9 }]}>
+              {photos.map((p) => (
+                <Pressable
+                  key={p.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove photo: ${p.name}`}
+                  onPress={() => setPhotos((list) => list.filter((x) => x.id !== p.id))}
+                  style={[
+                    s.row,
+                    {
+                      gap: 7,
+                      backgroundColor: colors.sky,
+                      borderRadius: 14,
+                      padding: 5,
+                      paddingRight: 10,
+                    },
+                  ]}
+                >
+                  {p.url ? (
+                    <Image
+                      source={{ uri: p.url }}
+                      style={{ width: 40, height: 40, borderRadius: 10 }}
+                    />
+                  ) : (
+                    <ImageIcon size={16} color={colors.blueDark} />
+                  )}
+                  <Text
+                    numberOfLines={1}
+                    style={{ maxWidth: 140, fontSize: 12, color: colors.text }}
+                  >
+                    {p.name}
+                  </Text>
+                  <X size={13} color={colors.muted} />
+                </Pressable>
+              ))}
+            </View>
+          )}
           {attachments.length > 0 && (
             <View style={[s.row, { gap: 6, flexWrap: "wrap", padding: 9 }]}>
               {w.files
@@ -951,7 +1053,7 @@ export function ChatScreen({
           <View style={[s.row, { gap: 7, alignItems: "flex-end" }]}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Attach a document"
+              accessibilityLabel="Attach a document or photo"
               accessibilityState={{ expanded: picking }}
               onPress={() => setPicking(!picking)}
               style={({ pressed }) => ({

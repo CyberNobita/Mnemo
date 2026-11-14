@@ -6,9 +6,11 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fitPhoto, uprightSize } from "./photo.mjs";
 
 const OLLAMA = "http://localhost:11434";
 const TEXT_MODEL = "qwen3-uncensored";
+const VISION_MODEL = "gemma3:4b";
 const SD_CLI = "D:\\sdcpp\\sd-cli.exe";
 const MODELS = "D:\\models\\wan";
 const T5 = join(MODELS, "umt5-xxl-encoder-Q6_K.gguf");
@@ -19,9 +21,15 @@ const NEGATIVE =
 // VIDEO_MODEL picks the model. "wan22-5b" (default when its files exist) is Wan 2.2 TI2V 5B:
 // 1280x704 at 24 fps, slower but much better. "wan21-fast" is Wan 2.1 1.3B with a 4-step LoRA.
 // VIDEO_SIZE (WxH, multiples of 32) changes Wan 2.2's size: 832x480 renders much faster than 1280x704.
-const [WIDTH, HEIGHT] = (process.env.VIDEO_SIZE || "1280x704").split("x").map(Number);
+let [WIDTH, HEIGHT] = (process.env.VIDEO_SIZE || "1280x704").split("x").map(Number);
 if (!(WIDTH % 32 === 0 && HEIGHT % 32 === 0 && WIDTH >= 256 && HEIGHT >= 256))
   throw new Error(`VIDEO_SIZE must be WxH in multiples of 32, got ${process.env.VIDEO_SIZE}`);
+// START_IMAGE: a photo the first scene starts from (Wan 2.2 5B only). A portrait photo makes a
+// portrait video.
+const START_PHOTO = process.env.START_IMAGE || "";
+if (START_PHOTO && !existsSync(START_PHOTO)) throw new Error(`START_IMAGE not found: ${START_PHOTO}`);
+const photoShape = START_PHOTO ? await uprightSize(START_PHOTO) : null;
+if (photoShape && photoShape.height > photoShape.width) [WIDTH, HEIGHT] = [HEIGHT, WIDTH];
 const PROFILES = {
   "wan22-5b": {
     fps: 24,
@@ -57,6 +65,8 @@ const modelName =
   (PROFILES["wan22-5b"].files.every((f) => existsSync(f)) ? "wan22-5b" : "wan21-fast");
 const MODEL = PROFILES[modelName];
 if (!MODEL) throw new Error(`unknown VIDEO_MODEL ${modelName}`);
+if (START_PHOTO && !MODEL.chain)
+  throw new Error("Starting a video from a photo needs Wan 2.2 5B (VIDEO_MODEL=wan22-5b, VIDEO_CHAIN on)");
 const FPS = MODEL.fps;
 const FRAMES = MODEL.frames;
 const SCENE_SECONDS = FRAMES / FPS;
@@ -115,7 +125,15 @@ async function storyboard() {
             role: "system",
             content: STORY_SYS.replace("exactly N", `exactly ${scenes}`).replace("SHOTS", SHOT_RULE),
           },
-          { role: "user", content: `Idea: ${idea}\nNumber of scenes: ${scenes}` },
+          {
+            role: "user",
+            content:
+              `Idea: ${idea}\nNumber of scenes: ${scenes}` +
+              (photoText
+                ? `\nThe first scene starts exactly from this photo, so the style must describe` +
+                  ` its subject, place and light as they are: ${photoText}`
+                : ""),
+          },
         ],
       }),
     });
@@ -225,6 +243,43 @@ async function joinClips(clips, out) {
   return frames.length;
 }
 
+// The text model cannot see the photo, so the vision model describes it for the storyboard.
+async function describePhoto() {
+  const small = await fitPhoto(
+    START_PHOTO,
+    join(runDir, "photo-small.jpg"),
+    ...(photoShape.width >= photoShape.height
+      ? [512, Math.round((512 * photoShape.height) / photoShape.width)]
+      : [Math.round((512 * photoShape.width) / photoShape.height), 512]),
+  );
+  const res = await fetch(`${OLLAMA}/api/chat`, {
+    method: "POST",
+    body: JSON.stringify({
+      model: VISION_MODEL,
+      stream: false,
+      keep_alive: 0,
+      options: { num_ctx: 4096, temperature: 0.2 },
+      messages: [
+        {
+          role: "user",
+          content:
+            "Describe this photo for a film director in 40-70 words: the main subject with concrete details (who or what, age, clothing, colours), what they are doing, the place, the light and the camera angle. Plain text only.",
+          images: [readFileSync(small).toString("base64")],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`${VISION_MODEL}: ${res.status} ${await res.text()}`);
+  return String((await res.json()).message?.content || "").trim();
+}
+let photoText = "";
+let startImage = null;
+if (START_PHOTO) {
+  photoText = await describePhoto();
+  startImage = await fitPhoto(START_PHOTO, join(runDir, "start.png"), WIDTH, HEIGHT);
+  log(`Starting from photo ${START_PHOTO}: ${photoText}`);
+}
+
 log(`Long video (${modelName}${modelName === "wan22-5b" ? ` ${WIDTH}x${HEIGHT}` : ""}):${seconds}s requested, ${scenes} scenes of ~${SCENE_SECONDS.toFixed(1)}s`);
 const plan = await storyboard();
 log(`Title: ${plan.title}`);
@@ -236,7 +291,6 @@ await unloadOllama();
 const baseSeed = Math.floor(Math.random() * 2 ** 30);
 const clips = [];
 const failed = [];
-let startImage = null;
 const chained = new Set();
 for (const [index, scene] of plan.scenes.entries()) {
   const file = join(runDir, `scene${String(index + 1).padStart(2, "0")}.avi`);
@@ -253,7 +307,8 @@ for (const [index, scene] of plan.scenes.entries()) {
   }
   if (ok) {
     clips.push(file);
-    if (startImage) chained.add(file);
+    // Scene 1 keeps its first frame (the user's photo); later scenes repeat the previous frame.
+    if (startImage && index > 0) chained.add(file);
     if (MODEL.chain) {
       const frames = aviFrames(file);
       if (frames.length) {

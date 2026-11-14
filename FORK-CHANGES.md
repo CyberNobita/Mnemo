@@ -94,6 +94,11 @@ All providers return the same bounded result shape (10 sources, 30,000 excerpt c
   (`VIDEO_MODEL=wan21-fast`), and joined into one video. They run in the background, so the
   tool returns at once; the record stays `running` with scene progress, and a server restart
   marks an unfinished video as failed.
+- Photos: `POST /api/images` stores an uploaded JPEG or PNG. In the chat, "+" > "Upload a
+  photo" attaches it, and the message carries its image ID. `edit_image` (`photoId`,
+  `instruction`, `mode`) runs `IMAGEEDIT_SCRIPT`: `edit` follows a written change with FLUX.1
+  Kontext, `restyle` redraws the whole picture with SDXL img2img. `generate_video` takes an
+  optional `photoId`, and the first scene starts from that photo.
 - `apps/mobile/src/image-tool-card.tsx` (new), `chat.tsx`: inline image and video cards. An
   image that misses its quality target is not shown. A long video's card checks progress every
   15 seconds, shows "scene x of y" with a progress bar, and plays the video when it is ready.

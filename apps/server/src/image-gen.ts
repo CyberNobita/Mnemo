@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import type { Auth } from "./auth.ts";
 import type { Config } from "./config.ts";
@@ -26,6 +26,7 @@ export function scriptError(stderr: string): string {
 }
 const FORMATS = {
   png: "image/png",
+  jpg: "image/jpeg",
   webm: "video/webm",
   mp4: "video/mp4",
   avi: "video/x-msvideo",
@@ -50,6 +51,10 @@ export type GeneratedMedia = {
   progress?: { done: number; total: number };
   seconds?: number;
   error?: string;
+  /** A photo the user uploaded (not generated). */
+  uploaded?: boolean;
+  /** The photo this picture or video was made from. */
+  sourceId?: string;
 };
 
 /** Scenes of about 5 seconds each; a long video gets this much time per scene. */
@@ -93,6 +98,79 @@ export class ImageGen {
   get longVideoEnabled() {
     return !!this.config.longVideoScript;
   }
+  get editEnabled() {
+    return !!this.config.imageEditScript;
+  }
+  /** Saves a JPEG or PNG photo the user uploaded so tools can edit it or animate it. */
+  async upload(owner: string, bytes: Uint8Array, name: string) {
+    const format: Format | undefined =
+      bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        ? "jpg"
+        : bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+          ? "png"
+          : undefined;
+    if (!format) throw new AppError("Choose a JPEG or PNG photo", 422);
+    const id = randomUUID();
+    await mkdir(this.directory(), { recursive: true });
+    await writeFile(this.pathFor(id, format), bytes);
+    const media: GeneratedMedia = {
+      id,
+      kind: "image",
+      format,
+      idea: name.slice(0, 200) || "Uploaded photo",
+      prompt: "",
+      score: 0,
+      passed: true,
+      rounds: 0,
+      createdAt: new Date().toISOString(),
+      uploaded: true,
+    };
+    await this.db.put(owner, "images", media);
+    return this.get(owner, id);
+  }
+  /** File path of a finished picture (uploaded or generated) for use as a script input. */
+  private async photoFile(owner: string, id: string) {
+    const media = await this.get(owner, id);
+    if (media.kind !== "image" || !media.url)
+      throw new AppError("That ID is not a finished photo or picture", 422);
+    return this.pathFor(id, media.format);
+  }
+  /**
+   * Changes a photo with IMAGEEDIT_SCRIPT: "edit" follows a written change and keeps the rest,
+   * "restyle" redraws the whole picture from a description.
+   */
+  edit(
+    owner: string,
+    photoId: string,
+    instruction: string,
+    mode: "edit" | "restyle",
+    signal?: AbortSignal,
+  ): Promise<GeneratedMedia> {
+    const script = this.config.imageEditScript;
+    if (!script) throw new AppError("Photo editing is not configured", 503);
+    return this.exclusive(async () => {
+      const photo = await this.photoFile(owner, photoId);
+      const id = randomUUID();
+      const runDir = join(this.directory(), "runs", id);
+      await mkdir(runDir, { recursive: true });
+      const result = await this.run(script, [photo, instruction, mode], runDir, signal);
+      await copyFile(join(runDir, "best.png"), this.pathFor(id, "png"));
+      const media: GeneratedMedia = {
+        id,
+        kind: "image",
+        format: "png",
+        idea: instruction,
+        prompt: String(result.prompt ?? instruction),
+        score: 0,
+        passed: true,
+        rounds: 1,
+        createdAt: new Date().toISOString(),
+        sourceId: photoId,
+      };
+      await this.db.put(owner, "images", media);
+      return media;
+    });
+  }
   private directory() {
     return resolve(this.config.dataDir, "images");
   }
@@ -108,11 +186,15 @@ export class ImageGen {
     args: string[],
     runDir: string,
     signal?: AbortSignal,
-    options: { timeoutMs?: number; onLine?: (line: string) => void } = {},
+    options: {
+      timeoutMs?: number;
+      onLine?: (line: string) => void;
+      env?: Record<string, string>;
+    } = {},
   ) {
     const output = await new Promise<string>((done, fail) => {
       const child = spawn(process.execPath, [script, ...args], {
-        env: { ...process.env, IMAGEGEN_OUT: runDir },
+        env: { ...process.env, ...options.env, IMAGEGEN_OUT: runDir },
         windowsHide: true,
       });
       let stdout = "";
@@ -225,9 +307,10 @@ export class ImageGen {
    * Starts a long video (several ~5 s scenes joined together) in the background and returns
    * at once. The record stays "running" with scene progress until the file is ready.
    */
-  async startLongVideo(owner: string, idea: string, seconds: number) {
+  async startLongVideo(owner: string, idea: string, seconds: number, photoId?: string) {
     const script = this.config.longVideoScript;
     if (!script) throw new AppError("Long video generation is not configured", 503);
+    const photo = photoId ? await this.photoFile(owner, photoId) : undefined;
     if (this.running)
       throw new AppError("Another picture or video is being made; try again when it finishes", 409);
     this.running = true;
@@ -246,6 +329,7 @@ export class ImageGen {
       status: "running",
       progress: { done: 0, total },
       seconds,
+      ...(photoId ? { sourceId: photoId } : {}),
     };
     try {
       await this.db.put(owner, "images", media);
@@ -261,6 +345,7 @@ export class ImageGen {
         await mkdir(runDir, { recursive: true });
         const result = await this.run(script, [idea, String(seconds)], runDir, undefined, {
           timeoutMs: (total * MINUTES_PER_SCENE + 20) * 60 * 1000,
+          env: photo ? { START_IMAGE: photo } : {},
           onLine: (line) => {
             if (!line.startsWith("PROGRESS ")) return;
             try {
